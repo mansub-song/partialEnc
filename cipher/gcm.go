@@ -12,7 +12,7 @@ import (
 	"math"
 	"math/rand"
 
-	subtleoverlap "github.com/mansub1029/reapchain-ipfs/encrypt/subtle"
+	subtleoverlap "github.com/mansub1029/partialEnc/subtle"
 	"golang.org/x/crypto/sha3"
 )
 

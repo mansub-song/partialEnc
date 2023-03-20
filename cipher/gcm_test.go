@@ -16,7 +16,7 @@ import (
 	"reflect"
 	"testing"
 
-	mssong_cipher "github.com/mansub1029/reapchain-ipfs/encrypt/cipher"
+	mssong_cipher "github.com/mansub1029/partialEnc/cipher"
 )
 
 var aesGCMTests = []struct {

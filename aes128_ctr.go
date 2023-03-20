@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"time"
 
-	reapCipher "github.com/mansub1029/reapchain-ipfs/encrypt/cipher"
+	reapCipher "github.com/mansub1029/partialEnc/cipher"
 )
 
 const (

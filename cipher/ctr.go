@@ -15,8 +15,8 @@ package cipher
 import (
 	"math/rand"
 
-	"github.com/mansub1029/reapchain-ipfs/encrypt/bitmap"
-	"github.com/mansub1029/reapchain-ipfs/encrypt/subtle"
+	"github.com/mansub1029/partialEnc/bitmap"
+	"github.com/mansub1029/partialEnc/subtle"
 )
 
 type ctr struct {

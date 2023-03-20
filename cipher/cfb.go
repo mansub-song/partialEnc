@@ -6,7 +6,7 @@
 
 package cipher
 
-import "github.com/mansub1029/reapchain-ipfs/encrypt/subtle"
+import "github.com/mansub1029/partialEnc/subtle"
 
 type cfb struct {
 	b       Block

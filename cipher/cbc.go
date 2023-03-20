@@ -12,7 +12,7 @@
 package cipher
 
 import (
-	"github.com/mansub1029/reapchain-ipfs/encrypt/subtle"
+	"github.com/mansub1029/partialEnc/subtle"
 )
 
 type cbc struct {
