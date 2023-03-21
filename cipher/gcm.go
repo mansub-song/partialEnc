@@ -49,6 +49,9 @@ type AEAD interface {
 	// Even if the function fails, the contents of dst, up to its capacity,
 	// may be overwritten.
 	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
+
+	Seal_partial(dst, nonce, plaintext, data []byte) ([]byte, []int, []int)
+	Open_partial(dst, nonce, ciphertext, additionalData []byte, encIdx, dstGroup []int) ([]byte, error)
 }
 
 // gcmAble is an interface implemented by ciphers that have a specific optimized
@@ -461,11 +464,16 @@ func setRandomEncryptionIndex(inLen, groupSize int, groupNum int) []int {
 	index := make([]int, int(groupNum))
 
 	endGroup := inLen % int(groupSize)
+	fmt.Println("inLen, groupsize, groupNum, endGroup:", inLen, groupSize, groupNum, endGroup)
 
 	for i := 0; i < len(index)-1; i++ {
 		index[i] = rand.Intn(int(groupSize) / gcmBlockSize)
 	}
-	index[len(index)-1] = rand.Intn(endGroup / gcmBlockSize)
+	if endGroup == 0 { // 데이터 사이즈가 groupSize에 딱 떨어지는 경우
+		index[len(index)-1] = rand.Intn(int(groupSize) / gcmBlockSize)
+	} else {
+		index[len(index)-1] = rand.Intn(endGroup / gcmBlockSize)
+	}
 
 	return index
 }
@@ -521,11 +529,35 @@ func (g *gcm) counterCrypt_partial(out, in []byte, partialEncIdx []int, groupSiz
 
 }
 
-func shuffle(in []byte, partialEncIdx, srcGroup, dstGroup []int) {
+func shuffle(in []byte, groupSize int, partialEncIdx, srcGroup, dstGroup []int) {
+	fmt.Println("suffle in len:", len(in))
 
+	for i := 0; i < len(dstGroup); i++ {
+		pos := partialEncIdx[i] * gcmBlockSize
+		// temp := in[groupSize*i+pos : groupSize*i+pos+gcmBlockSize]
+		// in[groupSize*i+pos : groupSize*i+pos+gcmBlockSize] = in[groupSize*dstGroup[i]+pos:groupSize*dstGroup[i]+pos+gcmBlockSize]
+		// in[groupSize*dstGroup[i]+pos:groupSize*dstGroup[i]+pos+gcmBlockSize] = temp
+		for j := 0; j < gcmBlockSize; j++ {
+			in[groupSize*i+pos+j], in[groupSize*dstGroup[i]+pos+j] = in[groupSize*dstGroup[i]+pos+j], in[groupSize*i+pos+j]
+		}
+	}
 }
 
-func (g *gcm) Seal_partial(dst, nonce, plaintext, data []byte) []byte {
+func shuffleRecovery(in []byte, groupSize int, partialEncIdx, dstGroup []int) {
+	fmt.Println("suffleRecovery in len:", len(in))
+
+	for i := len(dstGroup) - 1; i >= 0; i-- {
+		pos := partialEncIdx[i] * gcmBlockSize
+		// temp := in[groupSize*i+pos : groupSize*i+pos+gcmBlockSize]
+		// in[groupSize*i+pos : groupSize*i+pos+gcmBlockSize] = in[groupSize*dstGroup[i]+pos:groupSize*dstGroup[i]+pos+gcmBlockSize]
+		// in[groupSize*dstGroup[i]+pos:groupSize*dstGroup[i]+pos+gcmBlockSize] = temp
+		for j := 0; j < gcmBlockSize; j++ {
+			in[groupSize*i+pos+j], in[groupSize*dstGroup[i]+pos+j] = in[groupSize*dstGroup[i]+pos+j], in[groupSize*i+pos+j]
+		}
+	}
+}
+
+func (g *gcm) Seal_partial(dst, nonce, plaintext, data []byte) ([]byte, []int, []int) {
 	plainTextLen := len(plaintext)
 	// fmt.Println("seal")
 	if len(nonce) != g.nonceSize {
@@ -536,8 +568,8 @@ func (g *gcm) Seal_partial(dst, nonce, plaintext, data []byte) []byte {
 	}
 
 	ret, out := sliceForAppend(dst, plainTextLen+g.tagSize)
-	fmt.Printf("ret: %x\n", ret)
-	fmt.Printf("out: %x\n", out)
+	// fmt.Printf("ret: %x\n", ret)
+	// fmt.Printf("out: %x\n", out)
 	fmt.Println("ret len:", len(ret), "out len:", len(out))
 	if subtleoverlap.InexactOverlap(out, plaintext) {
 		panic("crypto/cipher: invalid buffer overlap")
@@ -556,16 +588,18 @@ func (g *gcm) Seal_partial(dst, nonce, plaintext, data []byte) []byte {
 	encIdx := setRandomEncryptionIndex(plainTextLen, groupSize, groupNum)
 	g.counterCrypt_partial(out, plaintext, encIdx, groupSize, groupNum, &counter)
 
-	fmt.Printf("ret: %x\n", ret)
-	fmt.Printf("out: %x\n", out)
+	srcGroup, dstGroup := setShuffleGroup(groupNum)
+	shuffle(ret, groupSize, encIdx, srcGroup, dstGroup)
+	// fmt.Printf("ret: %x\n", ret)
+	// fmt.Printf("out: %x\n", out)
 	fmt.Printf("counter_2: %x\n", counter)
 	var tag [gcmTagSize]byte
 	g.auth(tag[:], out[:plainTextLen], data, &tagMask)
 	copy(out[plainTextLen:], tag[:])
-	fmt.Printf("ret: %x\n", ret)
-	fmt.Printf("out: %x\n", out)
+	// fmt.Printf("ret: %x\n", ret)
+	// fmt.Printf("out: %x\n", out)
 	// fmt.Printf("counter_2: %x\n", counter)
-	return ret
+	return ret, encIdx, dstGroup
 }
 
 func (g *gcm) enc_partial(out, in []byte, counter *[gcmBlockSize]byte) {
@@ -577,7 +611,7 @@ func (g *gcm) enc_partial(out, in []byte, counter *[gcmBlockSize]byte) {
 
 }
 
-func (g *gcm) Open_partial(dst, nonce, ciphertext, data []byte) ([]byte, error) {
+func (g *gcm) Open_partial(dst, nonce, ciphertext, data []byte, encIdx, dstGroup []int) ([]byte, error) {
 	if len(nonce) != g.nonceSize {
 		panic("crypto/cipher: incorrect nonce length given to GCM")
 	}
@@ -621,8 +655,9 @@ func (g *gcm) Open_partial(dst, nonce, ciphertext, data []byte) ([]byte, error) 
 		}
 		return nil, errOpen
 	}
-
-	g.counterCrypt(out, ciphertext, &counter)
+	groupSize, groupNum := setGroup(len(ciphertext))
+	shuffleRecovery(ciphertext, groupSize, encIdx, dstGroup)
+	g.counterCrypt_partial(out, ciphertext, encIdx, groupSize, groupNum, &counter)
 
 	return ret, nil
 }
